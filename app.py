@@ -380,8 +380,9 @@ if selected_dest_id:
         st.markdown(f"### {days_val}-Day Cultural Immersion Plan")
         plan = generate_cultural_immersion_plan(dest, s_prefs, days=days_val)
         for day_plan in plan:
-            st.markdown(f'<div class="plan-card" role="article" aria-label="Day {day_plan[\'day\']}">', unsafe_allow_html=True)
-            st.markdown(f'<div class="plan-day">Day {day_plan["day"]}</div>', unsafe_allow_html=True)
+            day_num = day_plan["day"]
+            st.markdown(f'<div class="plan-card" role="article" aria-label="Day {day_num}">', unsafe_allow_html=True)
+            st.markdown(f'<div class="plan-day">Day {day_num}</div>', unsafe_allow_html=True)
             for slot_key, label in [("morning","🌅 Morning"), ("afternoon","☀️ Afternoon"), ("evening","🌙 Evening")]:
                 item = day_plan.get(slot_key)
                 if item:
