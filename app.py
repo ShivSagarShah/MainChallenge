@@ -1,48 +1,77 @@
 """
 Culture Compass — GenAI Travel Discovery Platform
+
 Works fully without an API key (own algorithm mode).
 Add a Gemini key for AI-enhanced immersive storytelling.
 """
-import os
-import sys
-import calendar
-import html
-import hashlib
-import re
+from __future__ import annotations
 
-# Add project root to path so sub-packages resolve
-sys.path.insert(0, os.path.dirname(__file__))
+import calendar
+import hashlib
+import html
+import logging
+import os
+import re
+import sys
+from typing import Any
+
+# Ensure project root is on the path when running via `streamlit run app.py`
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 import streamlit as st
 from dotenv import load_dotenv
 
-from data.destinations import DESTINATIONS, ALL_INTERESTS
-from engine.recommender import recommend, discover_hidden_gems, build_heritage_trail
-from engine.storyteller  import generate_story, generate_cultural_intro
-from engine.cultural     import (
-    match_experiences, get_events_for_month,
-    get_cultural_calendar, rank_hidden_gems_for_dest,
+from data.destinations import ALL_INTERESTS, DESTINATIONS
+from engine.cultural import (
     generate_cultural_immersion_plan,
+    get_cultural_calendar,
+    get_events_for_month,
+    match_experiences,
+    rank_hidden_gems_for_dest,
 )
+from engine.recommender import build_heritage_trail, discover_hidden_gems, recommend
+from engine.storyteller import generate_cultural_intro, generate_story
 
 load_dotenv()
+
+logging.basicConfig(level=logging.WARNING)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SECURITY HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 def sanitise(text: str) -> str:
-    """Escape HTML special chars in any user-supplied string before rendering."""
+    """Escape HTML special characters in user-supplied strings before rendering."""
     return html.escape(str(text or ""), quote=True)
 
+
 def validate_api_key(key: str) -> bool:
-    """Basic structural validation — keys must be non-empty strings."""
+    """
+    Perform structural validation on an API key string.
+
+    Returns ``True`` when *key* is a non-empty string of at least 10 characters.
+    This prevents obviously invalid values from being forwarded to the AI backend.
+    """
     if not key or not isinstance(key, str):
         return False
-    key = key.strip()
-    return len(key) >= 10  # minimum plausible key length
+    return len(key.strip()) >= 10
+
 
 def sanitise_text_input(text: str, max_len: int = 500) -> str:
-    """Strip control characters and cap length on free-text inputs."""
+    """
+    Remove control characters and cap the length of free-text user inputs.
+
+    Parameters
+    ----------
+    text    : Raw user input string.
+    max_len : Maximum allowed character count (default 500).
+
+    Returns
+    -------
+    str
+        Cleaned string, stripped of whitespace.
+    """
     clean = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text or ""))
     return clean[:max_len].strip()
 
@@ -50,32 +79,61 @@ def sanitise_text_input(text: str, max_len: int = 500) -> str:
 # EFFICIENCY: cache static data — loaded once per session
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
-def get_destinations():
+def get_destinations() -> list[dict[str, Any]]:
+    """Return the full destination list, cached for the session."""
     return DESTINATIONS
 
+
 @st.cache_data(show_spinner=False)
-def get_all_interests():
+def get_all_interests() -> list[str]:
+    """Return the sorted list of all interest tags, cached for the session."""
     return ALL_INTERESTS
 
+
 @st.cache_data(show_spinner=False)
-def cached_recommend(prefs_key: str, prefs: dict, n: int = 5):
+def cached_recommend(prefs_key: str, prefs: dict[str, Any], n: int = 5) -> list[dict[str, Any]]:
+    """
+    Return top-*n* recommendations for *prefs*, cached by *prefs_key*.
+
+    Parameters
+    ----------
+    prefs_key : Stable MD5 hash of the preferences dict used as a cache key.
+    prefs     : User preference dict.
+    n         : Number of results.
+    """
     return recommend(prefs, n=n)
 
+
 @st.cache_data(show_spinner=False)
-def cached_hidden_gems(prefs_key: str, prefs: dict, n: int = 3):
+def cached_hidden_gems(prefs_key: str, prefs: dict[str, Any], n: int = 3) -> list[dict[str, Any]]:
+    """
+    Return top-*n* hidden gems for *prefs*, cached by *prefs_key*.
+
+    Parameters
+    ----------
+    prefs_key : Stable MD5 hash of the preferences dict used as a cache key.
+    prefs     : User preference dict.
+    n         : Number of results.
+    """
     return discover_hidden_gems(prefs, n=n)
 
-@st.cache_data(show_spinner=False)
-def cached_algorithm_story(dest_id: str, prefs_key: str, prefs: dict):
-    """Cache algorithm-mode stories — same inputs always produce same output."""
-    from data.destinations import DESTINATION_MAP
-    dest = DESTINATION_MAP.get(dest_id, {})
-    story, mode = generate_story(dest, prefs, api_key="")
-    return story, mode
 
-def _prefs_key(prefs: dict) -> str:
-    """Stable hash of preferences dict for use as cache key."""
-    return hashlib.md5(str(sorted(prefs.items())).encode()).hexdigest()
+@st.cache_data(show_spinner=False)
+def cached_algorithm_story(
+    dest_id: str, prefs_key: str, prefs: dict[str, Any]
+) -> tuple[str, str]:
+    """
+    Return the algorithm-mode story for *dest_id*, cached by *prefs_key*.
+
+    Algorithm-mode stories are deterministic, so caching is safe.
+    """
+    from data.destinations import DESTINATION_MAP  # local import avoids circular reference
+    dest = DESTINATION_MAP.get(dest_id, {})
+    return generate_story(dest, prefs, api_key="")
+
+def _prefs_key(prefs: dict[str, Any]) -> str:
+    """Return a stable MD5 hex digest of the sorted preferences dict."""
+    return hashlib.md5(str(sorted(prefs.items())).encode(), usedforsecurity=False).hexdigest()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
