@@ -89,8 +89,13 @@ def _algorithm_story(dest: dict, prefs: dict) -> str:
 def _ai_story(dest: dict, prefs: dict, api_key: str) -> str:
     from google import genai
     from google.genai import types
+    import streamlit as st
 
-    # Use curated content as grounding so AI stays accurate
+    @st.cache_resource
+    def _get_client(key: str):
+        return genai.Client(api_key=key)
+
+    client = _get_client(api_key)
     curated = dest.get("storytelling", {})
     grounding = "\n".join([
         f"DAWN: {curated.get('dawn','')}",

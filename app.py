@@ -6,6 +6,9 @@ Add a Gemini key for AI-enhanced immersive storytelling.
 import os
 import sys
 import calendar
+import html
+import hashlib
+import re
 
 # Add project root to path so sub-packages resolve
 sys.path.insert(0, os.path.dirname(__file__))
@@ -23,6 +26,56 @@ from engine.cultural     import (
 )
 
 load_dotenv()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECURITY HELPERS
+# ─────────────────────────────────────────────────────────────────────────────
+def sanitise(text: str) -> str:
+    """Escape HTML special chars in any user-supplied string before rendering."""
+    return html.escape(str(text or ""), quote=True)
+
+def validate_api_key(key: str) -> bool:
+    """Basic structural validation — keys must be non-empty strings."""
+    if not key or not isinstance(key, str):
+        return False
+    key = key.strip()
+    return len(key) >= 10  # minimum plausible key length
+
+def sanitise_text_input(text: str, max_len: int = 500) -> str:
+    """Strip control characters and cap length on free-text inputs."""
+    clean = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text or ""))
+    return clean[:max_len].strip()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EFFICIENCY: cache static data — loaded once per session
+# ─────────────────────────────────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def get_destinations():
+    return DESTINATIONS
+
+@st.cache_data(show_spinner=False)
+def get_all_interests():
+    return ALL_INTERESTS
+
+@st.cache_data(show_spinner=False)
+def cached_recommend(prefs_key: str, prefs: dict, n: int = 5):
+    return recommend(prefs, n=n)
+
+@st.cache_data(show_spinner=False)
+def cached_hidden_gems(prefs_key: str, prefs: dict, n: int = 3):
+    return discover_hidden_gems(prefs, n=n)
+
+@st.cache_data(show_spinner=False)
+def cached_algorithm_story(dest_id: str, prefs_key: str, prefs: dict):
+    """Cache algorithm-mode stories — same inputs always produce same output."""
+    from data.destinations import DESTINATION_MAP
+    dest = DESTINATION_MAP.get(dest_id, {})
+    story, mode = generate_story(dest, prefs, api_key="")
+    return story, mode
+
+def _prefs_key(prefs: dict) -> str:
+    """Stable hash of preferences dict for use as cache key."""
+    return hashlib.md5(str(sorted(prefs.items())).encode()).hexdigest()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIG
@@ -139,7 +192,9 @@ with st.sidebar:
         value=os.getenv("GEMINI_API_KEY", ""),
         help="Optional — enhances storytelling with AI. App works fully without it.",
     )
-    mode_label = "🤖 AI-Enhanced Mode" if api_key else "⚙️ Algorithm Mode (no key needed)"
+    # Validate key format before use
+    api_key_clean = api_key.strip() if validate_api_key(api_key) else ""
+    mode_label = "🤖 AI-Enhanced Mode" if api_key_clean else "⚙️ Algorithm Mode (no key needed)"
     st.caption(mode_label)
 
     st.divider()
@@ -153,7 +208,7 @@ with st.sidebar:
 
     interests = st.multiselect(
         "My interests",
-        ALL_INTERESTS,
+        get_all_interests(),
         default=["history", "food"],
         format_func=lambda i: f"{INTEREST_ICONS.get(i,'🔹')} {i.title()}",
     )
@@ -196,9 +251,9 @@ with st.sidebar:
 prefs = dict(
     traveller_type    = traveller_type,
     interests         = interests,
-    budget_level      = budget_level,
-    month             = month,
-    wants_hidden_gems = wants_hidden_gems,
+    budget_level      = int(budget_level),          # ensure serialisable int
+    month             = int(month),
+    wants_hidden_gems = bool(wants_hidden_gems),
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -261,8 +316,9 @@ Select your preferences in the sidebar and click **Discover Destinations**.
 # ─────────────────────────────────────────────────────────────────────────────
 if discover_btn:
     with st.spinner("Running cultural recommendation engine…"):
-        top_recs  = recommend(prefs, n=5)
-        top_gems  = discover_hidden_gems(prefs, n=3)
+        pk = _prefs_key(prefs)
+        top_recs  = cached_recommend(pk, prefs, n=5)
+        top_gems  = cached_hidden_gems(pk, prefs, n=3)
     st.session_state.update(
         results   = top_recs,
         gems      = top_gems,
@@ -296,10 +352,10 @@ if selected_dest_id:
         with st.spinner("Generating story…"):
             story, mode = generate_story(dest, s_prefs, s_key)
         mode_str = "✨ AI-Enhanced (Gemini)" if mode == "ai" else "⚙️ Algorithm Mode — add a Gemini key for AI storytelling"
-        st.markdown(f'<div class="story-mode">{mode_str}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="story-mode">{sanitise(mode_str)}</div>', unsafe_allow_html=True)
         for para in story.split("\n\n"):
             if para.strip():
-                st.markdown(f'<div class="story-para">{para.strip()}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="story-para">{sanitise(para.strip())}</div>', unsafe_allow_html=True)
 
     with tabs[1]:  # Experiences
         st.markdown("### Cultural Experiences")
@@ -470,7 +526,7 @@ with tab_recs:
             st.caption(f"Story mode: {mode_str}")
             for para in story.split("\n\n"):
                 if para.strip():
-                    st.markdown(f'<div class="story-para">{para.strip()}</div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="story-para">{sanitise(para.strip())}</div>', unsafe_allow_html=True)
             st.markdown(f"**Explore {dest['name']} in depth:** select it from the sidebar dropdown →")
 
 with tab_gems:
@@ -502,7 +558,7 @@ with tab_culture:
     for dest in results[:3]:
         st.markdown(f"#### {dest['flag']} {dest['name']}")
         intro = generate_cultural_intro(dest)
-        st.markdown(f'<div class="story-para">{intro}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="story-para">{sanitise(intro)}</div>', unsafe_allow_html=True)
         exps = match_experiences(dest, s_prefs)[:2]
         for exp in exps:
             st.markdown(f"- **{exp['name']}** {exp.get('tier_icon','')} — {exp.get('description','')[:100]}…")
