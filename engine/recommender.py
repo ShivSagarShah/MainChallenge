@@ -16,13 +16,37 @@ from __future__ import annotations
 from typing import Any
 from data.destinations import DESTINATIONS
 
+# Public API
+__all__ = ["score_destination", "recommend", "discover_hidden_gems", "build_heritage_trail"]
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Core scoring function
 # ─────────────────────────────────────────────────────────────────────────────
 
-def score_destination(dest: dict, prefs: dict) -> float:
-    """Return a 0–100 relevance score for a destination given user preferences."""
+def score_destination(dest: dict[str, Any], prefs: dict[str, Any]) -> float:
+    """
+    Compute a 0–100 relevance score for *dest* given *prefs*.
+
+    Scoring breakdown
+    -----------------
+    1. Interest alignment     35 pts  Jaccard-style overlap of interest tags.
+    2. Budget compatibility   20 pts  Penalises cost/budget mismatch by 8 pts per level.
+    3. Season fit             15 pts  Full score if travel month in best_months, partial if adjacent.
+    4. Hidden-gem preference  20 pts  gem_score rewarded when user wants off-beaten-path.
+    5. Traveller type match   10 pts  Exact type in dest[best_for] scores full; 'culture' partial.
+
+    Parameters
+    ----------
+    dest  : Destination dict from the database.
+    prefs : User preference dict with keys: interests, budget_level, month,
+            wants_hidden_gems, traveller_type.
+
+    Returns
+    -------
+    float
+        Score in [0, 100].
+    """
     score = 0.0
 
     # 1 · Interest alignment (35 pts)
@@ -70,13 +94,20 @@ def score_destination(dest: dict, prefs: dict) -> float:
 # Ranked recommendations
 # ─────────────────────────────────────────────────────────────────────────────
 
-def recommend(prefs: dict, n: int = 5) -> list[dict]:
+def recommend(prefs: dict[str, Any], n: int = 5) -> list[dict[str, Any]]:
     """
-    Return the top-n destinations ranked by score, each annotated with:
-      - score       : float 0–100
-      - match_pct   : int percentage
-      - matched_interests : list of shared interest tags
-      - why         : human-readable reason string
+    Return the top-*n* destinations ranked by score.
+
+    Each result is augmented with:
+    - ``score``              : float 0–100
+    - ``match_pct``          : int capped at 100
+    - ``matched_interests``  : list[str] shared tags
+    - ``why``                : human-readable reason string
+
+    Parameters
+    ----------
+    prefs : User preference dict.
+    n     : Number of results to return (default 5).
     """
     scored = []
     for dest in DESTINATIONS:
@@ -94,10 +125,19 @@ def recommend(prefs: dict, n: int = 5) -> list[dict]:
     return scored[:n]
 
 
-def discover_hidden_gems(prefs: dict, n: int = 3) -> list[dict]:
+def discover_hidden_gems(prefs: dict[str, Any], n: int = 3) -> list[dict[str, Any]]:
     """
-    Return top hidden gems — high authenticity, lower tourist density.
-    Algorithm: gem_score × interest_overlap × (2 - budget_penalty)
+    Return up to *n* hidden-gem destinations.
+
+    Algorithm
+    ---------
+    Only considers destinations with ``gem_score >= 0.55``.
+    Relevance = gem_score * 0.5 + interest_overlap * 0.4 + budget_fit * 0.1
+
+    Parameters
+    ----------
+    prefs : User preference dict.
+    n     : Number of gems to return (default 3).
     """
     results = []
     user_interests = set(prefs.get("interests", []))
@@ -119,10 +159,21 @@ def discover_hidden_gems(prefs: dict, n: int = 3) -> list[dict]:
 # Heritage trail builder
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_heritage_trail(dest: dict) -> list[dict]:
+def build_heritage_trail(dest: dict[str, Any]) -> list[dict[str, Any]]:
     """
-    Sequence heritage sites into a logical day-by-day trail with context.
-    Orders: morning spiritual → midday architectural → afternoon historical → evening cultural
+    Sequence heritage sites into a logical day-by-day trail.
+
+    Slots: Morning → Midday → Afternoon → Evening → Cultural moment.
+    The final entry is drawn from the destination's local events list.
+
+    Parameters
+    ----------
+    dest : Destination dict.
+
+    Returns
+    -------
+    list[dict]
+        Each item has keys: slot, site, era, significance, tip.
     """
     sites  = dest.get("heritage_sites", [])
     events = dest.get("local_events", [])
@@ -156,7 +207,8 @@ def build_heritage_trail(dest: dict) -> list[dict]:
 # Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _build_why(dest: dict, prefs: dict, matched: list) -> str:
+def _build_why(dest: dict[str, Any], prefs: dict[str, Any], matched: list[str]) -> str:
+    """Build a short human-readable reason string for a recommendation."""
     parts = []
     if matched:
         parts.append(f"Matches your interest in {', '.join(matched[:3])}")
@@ -169,7 +221,8 @@ def _build_why(dest: dict, prefs: dict, matched: list) -> str:
     return " · ".join(parts) if parts else "A culturally rich destination"
 
 
-def _heritage_tip(site: dict, dest: dict) -> str:
+def _heritage_tip(site: dict[str, Any], dest: dict[str, Any]) -> str:
+    """Generate a one-line visitor tip for a heritage site."""
     name = site.get("name", "")
     era  = site.get("era", "")
     if era:

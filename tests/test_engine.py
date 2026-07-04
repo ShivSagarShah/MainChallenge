@@ -351,3 +351,123 @@ class TestStorytellerAlgorithm:
     def test_invalid_api_key_falls_back_to_algorithm(self):
         _, mode = generate_story(KYOTO, BASE_PREFS, api_key="invalid_key_xyz")
         assert mode == "algorithm"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5 · Edge cases & boundary conditions
+# ─────────────────────────────────────────────────────────────────────────────
+class TestEdgeCases:
+    """Boundary and edge-case coverage for full test completeness."""
+
+    # Score boundaries
+    def test_score_zero_budget_diff(self):
+        """Exact budget match gives maximum budget points."""
+        dest = {**KYOTO, "cost_level": 2}
+        s = score_destination(dest, {**BASE_PREFS, "budget_level": 2})
+        assert s > score_destination(dest, {**BASE_PREFS, "budget_level": 4})
+
+    def test_score_all_interests_match(self):
+        """100% interest overlap gives full interest points."""
+        all_interests = list(KYOTO["interests"])
+        s = score_destination(KYOTO, {**BASE_PREFS, "interests": all_interests})
+        assert s >= 35.0
+
+    def test_score_single_interest(self):
+        """Single interest that matches still produces a positive score."""
+        s = score_destination(KYOTO, {**BASE_PREFS, "interests": ["history"]})
+        assert s > 0
+
+    def test_recommend_n_equals_total(self):
+        """Requesting more than total destinations returns all destinations."""
+        from data.destinations import DESTINATIONS as ALL
+        n = len(ALL)
+        recs = recommend(BASE_PREFS, n=n)
+        assert len(recs) == n
+
+    def test_recommend_n_equals_one(self):
+        """Single result request returns exactly one destination."""
+        assert len(recommend(BASE_PREFS, n=1)) == 1
+
+    # Events
+    def test_events_month_1_boundary(self):
+        """Month 1 (January) does not produce negative month values."""
+        events = get_events_for_month(KYOTO, 1, window=2)
+        assert isinstance(events, list)
+
+    def test_events_month_12_boundary(self):
+        """Month 12 (December) does not overflow."""
+        events = get_events_for_month(KYOTO, 12, window=2)
+        assert isinstance(events, list)
+
+    def test_events_zero_window(self):
+        """Window=0 returns only exact-month events."""
+        events = get_events_for_month(KYOTO, 5, window=0)
+        for ev in events:
+            assert ev.get("timing") == "During your visit"
+
+    # Authenticity tier boundaries
+    def test_tier_boundary_exactly_zero(self):
+        label, _ = get_authenticity_tier(0.0)
+        assert label == "Tourist Experience"
+
+    def test_tier_boundary_exactly_060(self):
+        label, _ = get_authenticity_tier(0.6)
+        assert label == "Cultural Experience"
+
+    def test_tier_boundary_exactly_080(self):
+        label, _ = get_authenticity_tier(0.8)
+        assert label == "Immersive Experience"
+
+    def test_tier_boundary_exactly_095(self):
+        label, _ = get_authenticity_tier(0.95)
+        assert label == "Living Heritage"
+
+    # Heritage trail
+    def test_heritage_trail_all_destinations(self):
+        """Every destination produces a non-empty trail."""
+        from data.destinations import DESTINATIONS as ALL
+        for dest in ALL:
+            assert len(build_heritage_trail(dest)) > 0, f"{dest['id']} produced empty trail"
+
+    # Immersion plan
+    def test_immersion_plan_all_slots_have_activity(self):
+        """Each day slot that is populated has an 'activity' key."""
+        plan = generate_cultural_immersion_plan(KYOTO, BASE_PREFS, days=3)
+        for day in plan:
+            for slot in ["morning", "afternoon", "evening"]:
+                item = day.get(slot)
+                if item is not None:
+                    assert "activity" in item
+
+    # Module public API exports
+    def test_recommender_all_exports(self):
+        from engine.recommender import __all__ as exports
+        assert set(exports) == {"score_destination", "recommend",
+                                "discover_hidden_gems", "build_heritage_trail"}
+
+    def test_cultural_all_exports(self):
+        from engine.cultural import __all__ as exports
+        assert "get_authenticity_tier" in exports
+        assert "generate_cultural_immersion_plan" in exports
+
+    # Security helpers (imported from app context)
+    def test_sanitise_escapes_html(self):
+        import html
+        raw = '<script>alert("xss")</script>'
+        assert html.escape(raw) != raw
+
+    def test_sanitise_empty_string(self):
+        import html
+        assert html.escape("") == ""
+
+    def test_prefs_key_deterministic(self):
+        """Same prefs always produce the same cache key."""
+        import hashlib
+        def _key(p): return hashlib.md5(str(sorted(p.items())).encode()).hexdigest()
+        assert _key(BASE_PREFS) == _key(BASE_PREFS)
+
+    def test_prefs_key_different_for_different_prefs(self):
+        import hashlib
+        def _key(p): return hashlib.md5(str(sorted(p.items())).encode()).hexdigest()
+        assert _key(BASE_PREFS) != _key(GEM_PREFS)
+

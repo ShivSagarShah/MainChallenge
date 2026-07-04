@@ -164,6 +164,11 @@ st.markdown("""
 [data-testid="stCheckbox"] label{color:#c8d8f0 !important;}
 </style>
 <a class="skip-nav" href="#main-content">Skip to main content</a>
+<script>
+  /* Set page language for screen readers (WCAG 3.1.1) */
+  document.documentElement.lang = "en";
+  document.documentElement.setAttribute("aria-label", "Culture Compass Travel Discovery");
+</script>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────────────────────

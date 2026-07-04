@@ -6,8 +6,14 @@ Cultural experience matching and event discovery — own algorithm.
 
 from __future__ import annotations
 import calendar
+from typing import Any
 
-MONTH_NAMES = {i: calendar.month_name[i] for i in range(1, 13)}
+__all__ = [
+    "get_authenticity_tier", "match_experiences", "get_events_for_month",
+    "get_cultural_calendar", "rank_hidden_gems_for_dest", "generate_cultural_immersion_plan",
+]
+
+MONTH_NAMES: dict[int, str] = {i: calendar.month_name[i] for i in range(1, 13)}
 
 # Authenticity tiers
 TIER_LABELS = {
@@ -19,6 +25,16 @@ TIER_LABELS = {
 
 
 def get_authenticity_tier(score: float) -> tuple[str, str]:
+    """
+    Map an authenticity score (0–1) to a human-readable tier label and icon.
+
+    Tiers
+    -----
+    0.00–0.60  Tourist Experience   🎭
+    0.60–0.80  Cultural Experience  🌍
+    0.80–0.95  Immersive Experience 🔥
+    0.95–1.00  Living Heritage      ⭐
+    """
     for (lo, hi), label in TIER_LABELS.items():
         if lo <= score < hi:
             return label
@@ -46,10 +62,20 @@ def match_experiences(dest: dict, prefs: dict) -> list[dict]:
     return results
 
 
-def get_events_for_month(dest: dict, month: int, window: int = 2) -> list[dict]:
+def get_events_for_month(
+    dest: dict[str, Any], month: int, window: int = 2
+) -> list[dict[str, Any]]:
     """
-    Return events within ±window months of the travel month.
-    Events in the exact month come first.
+    Return events within *window* months of *month*.
+
+    Events in the exact month are returned first with timing="During your visit".
+    Nearby events include a relative timing label.
+
+    Parameters
+    ----------
+    dest   : Destination dict.
+    month  : 1–12 integer representing the travel month.
+    window : How many months either side to include (default 2).
     """
     events = dest.get("local_events", [])
     exact, nearby = [], []
@@ -66,8 +92,8 @@ def get_events_for_month(dest: dict, month: int, window: int = 2) -> list[dict]:
     return exact + nearby
 
 
-def get_cultural_calendar(dest: dict) -> dict[str, list]:
-    """Group all events by month for a full-year calendar view."""
+def get_cultural_calendar(dest: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Return all events grouped by month name, excluding months with no events."""
     calendar_map: dict = {i: [] for i in range(1, 13)}
     for ev in dest.get("local_events", []):
         m = ev.get("month")
@@ -76,9 +102,14 @@ def get_cultural_calendar(dest: dict) -> dict[str, list]:
     return {MONTH_NAMES[k]: v for k, v in calendar_map.items() if v}
 
 
-def rank_hidden_gems_for_dest(dest: dict, prefs: dict) -> list[dict]:
+def rank_hidden_gems_for_dest(
+    dest: dict[str, Any], prefs: dict[str, Any]
+) -> list[dict[str, Any]]:
     """
-    Rank hidden gems within a destination by relevance to user interests.
+    Rank hidden gems within *dest* by relevance to user interests.
+
+    Uses a loose type→interest mapping to score each gem.
+    Gems whose type maps to a user interest score 1.0; others score 0.5.
     """
     gems   = dest.get("hidden_gems", [])
     interests = set(prefs.get("interests", []))
@@ -98,10 +129,26 @@ def rank_hidden_gems_for_dest(dest: dict, prefs: dict) -> list[dict]:
     return sorted(gems, key=_score, reverse=True)
 
 
-def generate_cultural_immersion_plan(dest: dict, prefs: dict, days: int = 3) -> list[dict]:
+def generate_cultural_immersion_plan(
+    dest: dict[str, Any], prefs: dict[str, Any], days: int = 3
+) -> list[dict[str, Any]]:
     """
-    Build a day-by-day cultural immersion itinerary combining experiences,
-    hidden gems and heritage sites.
+    Build a day-by-day cultural immersion itinerary.
+
+    Each day contains up to three slots (morning / afternoon / evening)
+    drawing from heritage sites, cultural experiences and hidden gems
+    in round-robin order.
+
+    Parameters
+    ----------
+    dest  : Destination dict.
+    prefs : User preference dict.
+    days  : Number of days to plan (1–7).
+
+    Returns
+    -------
+    list[dict]
+        One entry per day with keys: day, morning, afternoon, evening.
     """
     experiences = match_experiences(dest, prefs)
     gems        = rank_hidden_gems_for_dest(dest, prefs)
